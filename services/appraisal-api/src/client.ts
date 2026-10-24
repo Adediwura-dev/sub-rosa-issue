@@ -511,15 +511,19 @@ export function createPaidFetch(config: PaidClientConfig) {
         bodyForParse,
       );
     } catch {
-      throw new QuoteMismatchError("empty-challenge", first.status);
+      throw new X402PaymentError(
+        `x402 payment required response was invalid (${first.status})`,
+        first.status,
+      );
     }
 
     // Bind the payment to the quote this call requested. A changed asset,
-    // amount, destination, or expiry must not be paid.
-    if (!options.expectedQuote) {
-      throw new QuoteMismatchError("empty-challenge", first.status);
+    // amount, destination, or expiry must not be paid. Callers that did not
+    // request a quote up front (probe-then-pay) have nothing to bind against;
+    // the mandate guard below still bounds what they may spend.
+    if (options.expectedQuote) {
+      assertChallengeMatchesQuote(paymentRequired, options.expectedQuote, options.nowSeconds);
     }
-    assertChallengeMatchesQuote(paymentRequired, options.expectedQuote, options.nowSeconds);
 
     // Bind the quote to the mandate before any Stellar transfer.
     if (config.expectedQuote) {

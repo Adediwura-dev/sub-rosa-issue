@@ -4,7 +4,7 @@ import { x402HTTPClient } from "@x402/core/client";
 import { Keypair } from "@stellar/stellar-sdk";
 import { describe, test } from "node:test";
 
-import { createPaidFetch, X402PaymentError, AppraisalResponseParseError, MAX_PAYMENT_ERROR_DIAGNOSTIC_LENGTH, sanitizePaymentErrorDiagnostic } from "./client.js";
+import { createPaidFetch, X402PaymentError, AppraisalResponseParseError, MAX_PAYMENT_ERROR_DIAGNOSTIC_LENGTH, QuoteMismatchError, sanitizePaymentErrorDiagnostic } from "./client.js";
 
 const TEST_SECRET = Keypair.random().secret();
 const VALID_402_BODY = {
@@ -26,6 +26,15 @@ const VALID_402_BODY = {
 };
 
 const VALID_402_BODY_HASH = createHash("sha256").update(JSON.stringify(VALID_402_BODY)).digest("hex");
+
+const NOW_SECONDS = Math.floor(Date.now() / 1000);
+/** The quote the caller requested up front, before the first (unpaid) call. */
+const REQUESTED_QUOTE = {
+  asset: VALID_402_BODY.accepts[0].asset,
+  amount: 1_000_000n, // 0.10 USDC in stroops
+  destination: VALID_402_BODY.accepts[0].payTo,
+  expiresAt: NOW_SECONDS + 3600,
+};
 
 function buildResponse(status: number, body: string | undefined, headers?: Record<string, string>) {
   const headersMap = new Headers(headers ?? {});
@@ -98,7 +107,13 @@ describe("createPaidFetch response parsing", () => {
 
     const mismatchedBody = {
       ...VALID_402_BODY,
-      accepts: [{ ...VALID_402_BODY.accepts[0], price: "9.99" }],
+      accepts: [
+        {
+          ...VALID_402_BODY.accepts[0],
+          price: "9.99",
+          expiresAt: NOW_SECONDS + 3600,
+        },
+      ],
     };
     x402HTTPClient.prototype.getPaymentRequiredResponse = () => mismatchedBody as never;
     let createPaymentPayloadCalls = 0;
@@ -121,9 +136,10 @@ describe("createPaidFetch response parsing", () => {
 
     try {
       await assert.rejects(
-        () => paidFetch("https://example.com/appraise"),
+        () => paidFetch("https://example.com/appraise", {}, { expectedQuote: REQUESTED_QUOTE }),
         (err: unknown) => {
-          assert.ok(err instanceof X402PaymentError);
+          assert.ok(err instanceof QuoteMismatchError);
+          assert.equal(err.reason, "amount-mismatch");
           assert.doesNotMatch(err.message, /9\.99|stub-payload|raw/i);
           return true;
         },
@@ -144,7 +160,13 @@ describe("createPaidFetch response parsing", () => {
 
     const expiredBody = {
       ...VALID_402_BODY,
-      accepts: [{ ...VALID_402_BODY.accepts[0], maxTimeoutSeconds: 0 }],
+      accepts: [
+        {
+          ...VALID_402_BODY.accepts[0],
+          maxTimeoutSeconds: 0,
+          expiresAt: NOW_SECONDS - 1,
+        },
+      ],
     };
     x402HTTPClient.prototype.getPaymentRequiredResponse = () => expiredBody as never;
     let createPaymentPayloadCalls = 0;
@@ -167,9 +189,10 @@ describe("createPaidFetch response parsing", () => {
 
     try {
       await assert.rejects(
-        () => paidFetch("https://example.com/appraise"),
+        () => paidFetch("https://example.com/appraise", {}, { expectedQuote: REQUESTED_QUOTE }),
         (err: unknown) => {
-          assert.ok(err instanceof X402PaymentError);
+          assert.ok(err instanceof QuoteMismatchError);
+          assert.equal(err.reason, "expired");
           assert.doesNotMatch(err.message, /stub-payload|raw/i);
           return true;
         },
