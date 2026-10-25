@@ -29,7 +29,7 @@ import {
 } from "@sub-rosa/round-bindings/event-snapshot";
 import { toHex } from "@sub-rosa/tlock";
 import type { SealedBid } from "@sub-rosa/tlock";
-import type { RoundReceipt } from "./receipt.js";
+import type { RoundReceipt, RoundReceiptEvent } from "./receipt.js";
 import { assertSealedBid } from "./encrypted-blob.js";
 import type { SealedBidBinding } from "./encrypted-blob.js";
 import { networkFingerprint } from "./receipt.js";
@@ -120,28 +120,16 @@ export interface SubRosaClientConfig {
    */
   assetConfig?: import("./asset-config.js").AssetConfig;
   /**
+   * Optional passkey session to bind commits and client operations to.
+   */
+  session?: PasskeySessionBinding;
+  /**
    * @internal Testing hook: inject a mock Soroban RPC server for simulation.
    */
   _server?: rpc.Server;
 }
 
 export type ClearingRuleTag = ClearingRule["tag"];
-
-/**
- * The contract's `RoundAssetConfig` (contracts/round/src/types.rs).
- *
- * Declared here rather than imported because the generated bindings in this
- * tree predate the `asset_config` argument on `create_round`; the shape mirrors
- * the Rust struct exactly. Once the bindings are regenerated this type and the
- * accompanying cast at the call site can both be dropped.
- */
-interface RoundAssetConfig {
-  asset_type: string;
-  contract_id: string;
-  code: string;
-  decimals: number;
-  issuer: string;
-}
 
 export interface CreateRoundParams {
   /** sha256 (or any opaque 32-byte ref) of the off-chain item description. */
@@ -177,6 +165,15 @@ export interface CommitParams {
    * it (tlock >= this change), otherwise it must be supplied.
    */
   sealRound?: number | bigint;
+  /**
+   * Optional passkey session to bind this commit to. Defaults to the session
+   * configured on the client.
+   */
+  session?: PasskeySessionBinding;
+  /**
+   * The off-chain preimage binding the seal must match (commit integrity).
+   */
+  binding?: SealedBidBinding;
 }
 
 export interface RevealParams {
