@@ -488,6 +488,16 @@ export class SubRosaClient {
   }
 
   async commit(params: CommitParams): Promise<void> {
+    // Validate session first if present
+    const session = params.session ?? this.#session;
+    if (session) {
+      validatePasskeySession(session, {
+        contractId: this.contractId,
+        networkPassphrase: this.networkPassphrase,
+        account: params.bidder ?? this.#source ?? "",
+      });
+    }
+
     // Gate the seal before submitting. Size/encoding defects surface here
     // instead of as an on-chain PayloadTooLarge revert, and — when the caller
     // passes the value/nonce/round it sealed from — a blob whose commitment
@@ -501,10 +511,8 @@ export class SubRosaClient {
       if (assetError) {
         throw assetError;
       }
-    }
-
-    const bidder = params.bidder ?? this.#requireSource("bidder");
-    const rawSealRound = params.sealRound ?? (params.sealed as { sealRound?: number | bigint }).sealRound;
+    }    const bidder = params.bidder ?? this.#requireSource("bidder");
+      const rawSealRound = params.sealRound ?? (params.sealed as { sealRound?: number | bigint }).sealRound;
     if (rawSealRound === undefined) {
       throw new SubRosaClientConfigError(
         "sealRound is required: pass the Drand round the seal was encrypted to (issue #376 commit window)",

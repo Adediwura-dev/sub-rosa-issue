@@ -134,7 +134,7 @@ export function evaluateEscrowConservation(
 
 /** The subset of client reads a conservation walk needs. */
 export interface EscrowConservationSource {
-  getBiddersPage(cursor: number, limit: number): Promise<BiddersPage>;
+  getBiddersPage(cursor: Buffer | undefined, limit: number): Promise<BiddersPage>;
   getBidState(bidder: string): Promise<BidState | undefined>;
 }
 
@@ -208,7 +208,7 @@ export async function proveEscrowConservationFromPages(
   let refundable = 0n;
   let winnerEscrow = 0n;
   let declaredTotal: number | undefined;
-  let cursor = 0;
+  let cursor: Buffer | undefined = undefined;
   let pages = 0;
 
   for (;;) {
@@ -217,10 +217,11 @@ export async function proveEscrowConservationFromPages(
 
     if (declaredTotal === undefined) declaredTotal = page.total;
     else if (page.total !== declaredTotal) {
+      const cursorInfo = cursor instanceof Buffer ? cursor.toString("hex").slice(0, 8) : String(cursor);
       issues.push(
         issue(
           "page_total_drift",
-          `bidder count changed mid-walk: page at cursor ${cursor} reports ` +
+          `bidder count changed mid-walk: page at cursor ${cursorInfo} reports ` +
             `${page.total} bidders, earlier pages reported ${declaredTotal}`,
         ),
       );
@@ -275,9 +276,7 @@ export async function proveEscrowConservationFromPages(
         continue;
       }
       if (bidder === winner) winnerEscrow += state.escrow;
-      else refundable += state.escrow;
-    }
-
+      else refundable += state.escrow;    }
     if (seen.size > ESCROW_MAX_BIDDERS) {
       issues.push(
         issue(
@@ -287,12 +286,14 @@ export async function proveEscrowConservationFromPages(
       );
       break;
     }
-    if (page.next_cursor === 0) break;
-    if (page.next_cursor <= cursor) {
+    if (page.next_cursor == null) break;
+    const prevCursor = cursor;
+    cursor = page.next_cursor;
+    if (cursor instanceof Buffer && prevCursor instanceof Buffer && cursor.equals(prevCursor)) {
       issues.push(
         issue(
           "cursor_stalled",
-          `next_cursor ${page.next_cursor} did not advance past ${cursor}`,
+          `next_cursor did not advance past the previous cursor`,
         ),
       );
       break;
@@ -301,24 +302,13 @@ export async function proveEscrowConservationFromPages(
       issues.push(
         issue(
           "cursor_stalled",
-          `index walk exceeded ${maxPages} pages before the cursor reached 0`,
-        ),
-      );
-      break;
-    }
-    if (page.next_cursor > ESCROW_MAX_BIDDERS) {
-      issues.push(
-        issue(
-          "cursor_stalled",
-          `next_cursor ${page.next_cursor} points past the contract maximum of ` +
-            `${ESCROW_MAX_BIDDERS} bidders`,
+          `index walk exceeded ${maxPages} pages before the cursor was exhausted`,
         ),
       );
       break;
     }
     cursor = page.next_cursor;
   }
-
   if (winner !== undefined && !seen.has(winner)) {
     issues.push(
       issue(
@@ -329,6 +319,7 @@ export async function proveEscrowConservationFromPages(
       ),
     );
   }
+
 
   const expected = options.expectedBidders;
   if (expected) {

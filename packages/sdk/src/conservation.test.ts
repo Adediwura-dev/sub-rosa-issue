@@ -42,19 +42,24 @@ function source(options: FakeIndex): EscrowConservationSource & { calls: number 
     get calls() {
       return calls;
     },
-    async getBiddersPage(cursor: number, limit: number): Promise<BiddersPage> {
+    async getBiddersPage(cursor: Buffer | undefined, limit: number): Promise<BiddersPage> {
       calls += 1;
       const size = Math.max(1, Math.min(limit, pageSize));
-      const slice = options.bidders.slice(cursor, cursor + size);
+      const cur = cursor instanceof Buffer ? (cursor.length >= 4 ? cursor.readUInt32BE(0) : 0) : (cursor ? Number(cursor) : 0);
+      const slice = options.bidders.slice(cur, cur + size);
       const data = options.pages ? options.pages(slice) : slice;
+      const nextOffset = cur + size;
+      let nextCursor: Buffer | undefined;
+      if (options.nextCursor) {
+        nextCursor = Buffer.from(String(options.nextCursor(cur)));
+      } else if (nextOffset < options.bidders.length) {
+        nextCursor = Buffer.allocUnsafe(4);
+        nextCursor.writeUInt32BE(nextOffset, 0);
+      }
       return {
         data,
-        next_cursor: options.nextCursor
-          ? options.nextCursor(cursor)
-          : cursor + size >= options.bidders.length
-            ? 0
-            : cursor + size,
-        total: options.totals ? options.totals(cursor) : options.bidders.length,
+        next_cursor: nextCursor,
+        total: options.totals ? options.totals(cur) : options.bidders.length,
       };
     },
     async getBidState(bidder: string): Promise<BidState | undefined> {
@@ -192,7 +197,7 @@ describe("proveEscrowConservationFromPages", () => {
     assert.equal(report.refundable, 800n, "everyone except the winner");
     assert.equal(report.winnerEscrow, 200n);
     assert.equal(report.surplus, 0n);
-    assert.equal(report.conserved, true);
+    assert.equal(report.conserved, true, `expected conserved=true, got issues: ${JSON.stringify(report.issues)}`);
     assert.ok(src.calls >= 3, "the walk paged instead of fetching everything at once");
   });
 
@@ -205,7 +210,7 @@ describe("proveEscrowConservationFromPages", () => {
       }),
       { pageSize: 2 },
     );
-    assert.equal(report.conserved, true);
+    assert.equal(report.conserved, true, `expected conserved=true, got issues: ${JSON.stringify(report.issues)}`);
     assert.equal(report.refundable, 700n);
     assert.equal(report.payable, 0n);
   });
@@ -227,8 +232,10 @@ describe("proveEscrowConservationFromPages", () => {
         pageSize: 2,
         totals: (cursor) => (cursor === 0 ? 4 : 3),
       }),
-      { pageSize: 2 },
+      { pageSize: 2, maxPages: 3 },
     );
+    assert.equal(report.issues.length, 1, `expected 1 issue, got: ${JSON.stringify(report.issues)}`);
+    assert.ok(codes(report.issues).includes("page_total_drift"), `expected page_total_drift, got: ${JSON.stringify(codes(report.issues))}`);
     assert.equal(report.conserved, false);
     assert.ok(codes(report.issues).includes("page_total_drift"));
   });
