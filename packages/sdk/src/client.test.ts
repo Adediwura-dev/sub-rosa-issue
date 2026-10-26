@@ -1,6 +1,5 @@
 // Copyright (c) 2026 Sub Rosa contributors
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import { Keypair, rpc, StrKey } from "@stellar/stellar-sdk";
 
@@ -8,7 +7,6 @@ import { SubRosaClient } from "./client.js";
 import {
   SubRosaClientConfigError,
   SubRosaNetworkMismatchError,
-  SubRosaPaginationError,
   SubRosaSessionMismatchError,
   SubRosaSubmitError,
 } from "./errors.js";

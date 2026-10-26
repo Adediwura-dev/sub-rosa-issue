@@ -6,10 +6,6 @@ import {
   SubRosaSessionMismatchError,
 } from "./errors.js";
 import {
-  describeNetworkPassphraseMismatch,
-  networkDisplayName,
-  networkPassphrasesMatch,
-  SubRosaNetworkPassphraseMismatchError,
   validateContractNetwork,
   validatePasskeySession,
   type NetworkValidationServer,
